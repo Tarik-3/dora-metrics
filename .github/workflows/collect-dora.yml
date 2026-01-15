@@ -5,36 +5,69 @@ on:
     types: [dora-event]
 
 jobs:
-  collect:
+  collect-metrics:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure data directory
-        run: mkdir -p data
-
-      - name: Append event to CSV
+      - name: Ensure metrics file exists
         run: |
-          TS="${{ github.event.client_payload.timestamp }}"
-          SERVICE="${{ github.event.client_payload.service }}"
-          STATUS="${{ github.event.client_payload.status }}"
-          COMMIT="${{ github.event.client_payload.commit }}"
-          REPO="${{ github.event.client_payload.repo }}"
-          # header file to keep column names handy
-          echo "service,event,status,commit,repo,timestamp" > data/dora_events_header.csv
-          echo "${SERVICE},deploy,${STATUS},${COMMIT},${REPO},${TS}" >> data/dora_events.csv
+          if [ ! -f dora_metrics.csv ]; then
+            echo "service,event,status,commit,timestamp" > dora_metrics.csv
+          fi
 
-      - name: Upload consolidated CSV
+      - name: Append DORA event
+        run: |
+          printf "${{ github.event.client_payload.service }},${{ github.event.client_payload.event }},${{ github.event.client_payload.status }},${{ github.event.client_payload.commit }},${{ github.event.client_payload.timestamp }}\n" >> dora_metrics.csv
+          cat dora_metrics.csv
+
+      - name: Commit and push metrics
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add dora_metrics.csv
+          git commit -m "chore: record DORA event - ${{ github.event.client_payload.service }} ${{ github.event.client_payload.event }} ${{ github.event.client_payload.status }}" || echo "No changes to commit"
+          git push
+
+      - name: Generate DORA report
+        if: always()
+        run: |
+          echo "# DORA Metrics Report" > DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          echo "**Last updated:** $(date)" >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          echo "## Metrics Summary" >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          echo "### Deployment Frequency" >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          awk -F',' '$2=="deploy" {count++} END {print "Total deployments: " count}' dora_metrics.csv >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          echo "### Change Failure Rate" >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          awk -F',' 'NR>1 && $2=="deploy" {total++; if($3=="fail") failed++} END {if(total>0) print "Failure rate: " (failed/total*100) "% (" failed "/" total ")"; else print "No deployments yet"}' dora_metrics.csv >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          echo "## Full Event Log" >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          cat dora_metrics.csv >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+
+      - name: Upload DORA report
         uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: dora-events
-          path: data/dora_events.csv
+          name: dora-report
+          path: DORA_REPORT.md
 
-      # Optional: persist in repo history
-      # - name: Commit data
-      #   run: |
-      #     git config user.name "github-actions[bot]"
-      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-      #     git add data/dora_events.csv
-      #     git commit -m "chore: append DORA event [skip ci]" || exit 0
-      #     git push
+      - name: Post comment on issue (optional)
+        if: github.event.client_payload.issue_number
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: ${{ github.event.client_payload.issue_number }},
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '📊 DORA Event Recorded:\n- **Service:** ${{ github.event.client_payload.service }}\n- **Event:** ${{ github.event.client_payload.event }}\n- **Status:** ${{ github.event.client_payload.status }}\n- **Commit:** ${{ github.event.client_payload.commit }}'
+            })
