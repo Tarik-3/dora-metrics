@@ -7,6 +7,8 @@ on:
 jobs:
   collect-metrics:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -27,6 +29,7 @@ jobs:
           git config --local user.name "GitHub Action"
           git add dora_metrics.csv
           git commit -m "chore: record DORA event - ${{ github.event.client_payload.service }} ${{ github.event.client_payload.event }} ${{ github.event.client_payload.status }}" || echo "No changes to commit"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           git push
 
       - name: Generate DORA report
