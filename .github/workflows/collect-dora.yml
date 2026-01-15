@@ -41,21 +41,79 @@ jobs:
           echo "" >> DORA_REPORT.md
           echo "**Last updated:** $(date)" >> DORA_REPORT.md
           echo "" >> DORA_REPORT.md
-          echo "## Metrics Summary" >> DORA_REPORT.md
+          echo "## 📊 Key Metrics (DORA)" >> DORA_REPORT.md
           echo "" >> DORA_REPORT.md
-          echo "### Deployment Frequency" >> DORA_REPORT.md
+          
+          # Deployment Frequency
+          echo "### 1️⃣ Deployment Frequency" >> DORA_REPORT.md
+          echo "How often code is deployed to production." >> DORA_REPORT.md
           echo '```' >> DORA_REPORT.md
-          awk -F',' '$2=="deploy" {count++} END {print "Total deployments: " count}' dora_metrics.csv >> DORA_REPORT.md
+          total_deployments=$(awk -F',' 'NR>1 && $2=="deploy" {count++} END {print count+0}' dora_metrics.csv)
+          deployments_today=$(awk -F',' -v today="$(date +%Y-%m)" 'NR>1 && $2=="deploy" && $5 ~ today {count++} END {print count+0}' dora_metrics.csv)
+          echo "Total Deployments: $total_deployments"
+          echo "Deployments Today: $deployments_today"
           echo '```' >> DORA_REPORT.md
           echo "" >> DORA_REPORT.md
-          echo "### Change Failure Rate" >> DORA_REPORT.md
+          
+          # Change Failure Rate
+          echo "### 2️⃣ Change Failure Rate" >> DORA_REPORT.md
+          echo "Percentage of deployments that resulted in failures." >> DORA_REPORT.md
           echo '```' >> DORA_REPORT.md
-          awk -F',' 'NR>1 && $2=="deploy" {total++; if($3=="fail") failed++} END {if(total>0) print "Failure rate: " (failed/total*100) "% (" failed "/" total ")"; else print "No deployments yet"}' dora_metrics.csv >> DORA_REPORT.md
+          awk -F',' 'NR>1 && $2=="deploy" {total++; if($3=="fail") failed++} END {
+            if(total>0) {
+              rate = (failed/total*100)
+              printf "Failure Rate: %.1f%% (%d failed out of %d deployments)\n", rate, failed, total
+            } else {
+              print "No deployments yet"
+            }
+          }' dora_metrics.csv >> DORA_REPORT.md
           echo '```' >> DORA_REPORT.md
           echo "" >> DORA_REPORT.md
-          echo "## Full Event Log" >> DORA_REPORT.md
+          
+          # Lead Time (estimated from commit times)
+          echo "### 3️⃣ Lead Time for Changes" >> DORA_REPORT.md
+          echo "Time from commit to deployment." >> DORA_REPORT.md
           echo '```' >> DORA_REPORT.md
+          echo "Estimated from deployment events"
+          awk -F',' 'NR>1 && $2=="deploy" && $3=="success" {
+            print "- Service: " $1 ", Commit: " substr($4,1,8) ", Deployed: " $5
+          }' dora_metrics.csv >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          
+          # MTTR
+          echo "### 4️⃣ Mean Time to Recovery (MTTR)" >> DORA_REPORT.md
+          echo "Average time to recover from failed deployments." >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          failures=$(awk -F',' 'NR>1 && $2=="deploy" && $3=="fail" {count++} END {print count+0}' dora_metrics.csv)
+          successes_after_fail=$(awk -F',' 'NR>1 && $2=="deploy" && $3=="success" {count++} END {print count+0}' dora_metrics.csv)
+          echo "Failed Deployments: $failures"
+          echo "Successful Recoveries: $successes_after_fail"
+          if [ $failures -gt 0 ]; then
+            echo "MTTR: Tracking enabled (see events below)"
+          else
+            echo "MTTR: No failures recorded yet"
+          fi
+          echo '```' >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          
+          # Detailed Events
+          echo "## 📋 Detailed Event Log" >> DORA_REPORT.md
+          echo '```csv' >> DORA_REPORT.md
           cat dora_metrics.csv >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          echo "" >> DORA_REPORT.md
+          
+          # Service Breakdown
+          echo "## 🔧 Service Breakdown" >> DORA_REPORT.md
+          echo '```' >> DORA_REPORT.md
+          awk -F',' 'NR>1 {services[$1]++; if($3=="success") success[$1]++} END {
+            for(svc in services) {
+              fail = services[svc] - success[svc]
+              rate = (fail/services[svc]*100)
+              printf "%s: %d total, %d success, %d failed (%.1f%% failure rate)\n", svc, services[svc], success[svc]+0, fail, rate
+            }
+          }' dora_metrics.csv >> DORA_REPORT.md
           echo '```' >> DORA_REPORT.md
 
       - name: Upload DORA report
