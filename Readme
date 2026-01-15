@@ -1,0 +1,2 @@
+Ensure DORA_METRICS_TOKEN is set in backend and frontend repos (PAT with repo + workflow and access to dora-metrics).
+Trigger a backend/frontend deploy; verify collect-dora runs in dora-metrics and the dora-events artifact contains your rows.

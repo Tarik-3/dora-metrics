@@ -1,0 +1,40 @@
+name: collect-dora
+
+on:
+  repository_dispatch:
+    types: [dora-event]
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure data directory
+        run: mkdir -p data
+
+      - name: Append event to CSV
+        run: |
+          TS="${{ github.event.client_payload.timestamp }}"
+          SERVICE="${{ github.event.client_payload.service }}"
+          STATUS="${{ github.event.client_payload.status }}"
+          COMMIT="${{ github.event.client_payload.commit }}"
+          REPO="${{ github.event.client_payload.repo }}"
+          # header file to keep column names handy
+          echo "service,event,status,commit,repo,timestamp" > data/dora_events_header.csv
+          echo "${SERVICE},deploy,${STATUS},${COMMIT},${REPO},${TS}" >> data/dora_events.csv
+
+      - name: Upload consolidated CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: dora-events
+          path: data/dora_events.csv
+
+      # Optional: persist in repo history
+      # - name: Commit data
+      #   run: |
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      #     git add data/dora_events.csv
+      #     git commit -m "chore: append DORA event [skip ci]" || exit 0
+      #     git push
