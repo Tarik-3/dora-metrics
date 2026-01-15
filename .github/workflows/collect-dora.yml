@@ -3,6 +3,8 @@ name: collect-dora
 on:
   repository_dispatch:
     types: [dora-event]
+  push:
+    branches: [feature/pipeline, main]
 
 jobs:
   collect-metrics:
